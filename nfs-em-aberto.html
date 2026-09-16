@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Todas NFs em aberto</title>
+<style>
+  :root {
+    --azul: #1a5276;
+    --verde: #1e8449;
+    --vermelho: #c0392b;
+    --cinza-fundo: #f4f6f7;
+    --cinza-borda: #d5dbdb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--cinza-fundo);
+    margin: 0;
+    padding: 24px;
+    color: #222;
+  }
+  h1 {
+    font-size: 22px;
+    color: var(--azul);
+    margin-bottom: 16px;
+  }
+  .barra-acoes {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    background: var(--azul);
+    color: #fff;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .btn:hover { opacity: 0.9; }
+  input[type="file"] { display: none; }
+  #status-importacao { font-size: 13px; color: #555; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--cinza-borda);
+    font-size: 14px;
+  }
+  th {
+    background: var(--azul);
+    color: #fff;
+    font-weight: 600;
+  }
+  tr:hover { background: #f9f9f9; }
+
+  .badge {
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    display: inline-block;
+  }
+  .badge.atraso { background: var(--vermelho); }
+  .badge.prazo { background: var(--verde); }
+  .badge.sem-previsao { background: #999; }
+
+  .previsao-editavel {
+    cursor: pointer;
+    border-bottom: 1px dashed #999;
+  }
+  .previsao-editavel input {
+    font-size: 14px;
+    padding: 4px;
+    width: 120px;
+  }
+
+  #carregando, #vazio {
+    text-align: center;
+    padding: 24px;
+    color: #777;
+  }
+</style>
+</head>
+<body>
+
+<h1>Todas NFs em aberto</h1>
+
+<div class="barra-acoes">
+  <button class="btn" onclick="document.getElementById('inputCsv').click()">Importar CSV</button>
+  <input type="file" id="inputCsv" accept=".csv" onchange="importarArquivo(event)" />
+  <button class="btn" onclick="carregarLista()">Atualizar lista</button>
+  <span id="status-importacao"></span>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Pedido</th>
+      <th>NF</th>
+      <th>Previsão de Entrega</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody id="corpo-tabela"></tbody>
+</table>
+<div id="carregando" style="display:none;">Carregando...</div>
+<div id="vazio" style="display:none;">Nenhuma NF em aberto no momento.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+  // ⚠️ Troque pela URL do seu Web App publicado no Apps Script
+  const API_URL = "https://script.google.com/macros/s/AKfycbw3CRmNOXEjtVADO_uGFMcnG13LET84WtXd7G1NsNfjpvUXFmGsP412pE19u71YDxly/exec";
+
+  async function chamarApi(payload) {
+    const resp = await fetch(API_URL, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    const json = await resp.json();
+    if (!json.ok) throw new Error(json.erro || "Erro na API");
+    return json.data;
+  }
+
+  async function carregarLista() {
+    const corpo = document.getElementById("corpo-tabela");
+    const carregando = document.getElementById("carregando");
+    const vazio = document.getElementById("vazio");
+    corpo.innerHTML = "";
+    vazio.style.display = "none";
+    carregando.style.display = "block";
+
+    try {
+      const lista = await chamarApi({ action: "listar" });
+      carregando.style.display = "none";
+
+      if (!lista.length) {
+        vazio.style.display = "block";
+        return;
+      }
+
+      lista.forEach(item => {
+        const tr = document.createElement("tr");
+
+        const badgeClasse =
+          item.status === "Em atraso" ? "atraso" :
+          item.status === "No prazo" ? "prazo" : "sem-previsao";
+
+        tr.innerHTML = `
+          <td>${item.pedido}</td>
+          <td>${item.nf}</td>
+          <td class="previsao-editavel" data-nf="${item.nf}" data-previsao="${item.previsao}">
+            ${item.previsao || "-"}
+          </td>
+          <td><span class="badge ${badgeClasse}">${item.status}</span></td>
+        `;
+        corpo.appendChild(tr);
+      });
+
+      ativarEdicaoPrevisao();
+    } catch (err) {
+      carregando.style.display = "none";
+      alert("Erro ao carregar lista: " + err.message);
+    }
+  }
+
+  function ativarEdicaoPrevisao() {
+    document.querySelectorAll(".previsao-editavel").forEach(celula => {
+      celula.addEventListener("click", function handler() {
+        const nf = celula.dataset.nf;
+        const valorAtual = celula.dataset.previsao;
+
+        celula.innerHTML = `<input type="date" id="input-${nf}" />`;
+        const input = document.getElementById(`input-${nf}`);
+        input.focus();
+
+        input.addEventListener("blur", () => salvarPrevisao(nf, input.value, celula));
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") salvarPrevisao(nf, input.value, celula);
+        });
+      }, { once: true });
+    });
+  }
+
+  async function salvarPrevisao(nf, novaData, celula) {
+    if (!novaData) { carregarLista(); return; }
+    try {
+      await chamarApi({ action: "editarPrevisao", nf: nf, novaPrevisao: novaData });
+      carregarLista();
+    } catch (err) {
+      alert("Erro ao salvar previsão: " + err.message);
+      carregarLista();
+    }
+  }
+
+  function importarArquivo(event) {
+    const arquivo = event.target.files[0];
+    if (!arquivo) return;
+
+    const statusEl = document.getElementById("status-importacao");
+    statusEl.textContent = "Lendo CSV...";
+
+    Papa.parse(arquivo, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async function (resultado) {
+        // Espera colunas no CSV: Pedido, NF, Previsao
+        const dados = resultado.data.map(linha => ({
+          pedido: linha.Pedido || linha.pedido || "",
+          nf: linha.NF || linha.nf || "",
+          previsao: linha.Previsao || linha.previsao || linha["Previsão"] || ""
+        }));
+
+        statusEl.textContent = "Importando " + dados.length + " NFs...";
+        try {
+          const resposta = await chamarApi({ action: "importarCSV", dados: dados });
+          statusEl.textContent = "Importação concluída: " + resposta.total + " NFs em aberto.";
+          carregarLista();
+        } catch (err) {
+          statusEl.textContent = "";
+          alert("Erro ao importar: " + err.message);
+        }
+        event.target.value = "";
+      }
+    });
+  }
+
+  carregarLista();
+</script>
+</body>
+</html>
