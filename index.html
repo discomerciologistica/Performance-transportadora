@@ -58,7 +58,11 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     min-width: 140px;
     text-align: center;
+    cursor: pointer;
+    transition: transform 0.1s ease;
   }
+  .card-dashboard:hover { transform: translateY(-2px); }
+  .card-dashboard.indefinido .numero { color: #e67e22; }
   .card-dashboard .numero {
     font-size: 28px;
     font-weight: 700;
@@ -125,6 +129,24 @@
   .badge.atraso { background: var(--vermelho); }
   .badge.prazo { background: var(--verde); }
   .badge.sem-previsao { background: #999; }
+  .badge.indefinido { background: #e67e22; }
+
+  .previsao-editavel input[type="date"] {
+    font-size: 14px;
+    padding: 4px;
+    width: 120px;
+  }
+  .btn-indefinido {
+    margin-left: 6px;
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid #e67e22;
+    color: #e67e22;
+    background: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .btn-indefinido:hover { background: #e67e22; color: #fff; }
 
   .previsao-editavel {
     cursor: pointer;
@@ -148,17 +170,21 @@
 <h1>Todas NFs em aberto</h1>
 
 <div class="dashboard">
-  <div class="card-dashboard total">
+  <div class="card-dashboard total" onclick="filtrarPorStatus('todos')">
     <div class="numero" id="contagem-total">0</div>
     <div class="rotulo">Total em aberto</div>
   </div>
-  <div class="card-dashboard atraso">
+  <div class="card-dashboard atraso" onclick="filtrarPorStatus('Em atraso')">
     <div class="numero" id="contagem-atraso">0</div>
     <div class="rotulo">Em atraso</div>
   </div>
-  <div class="card-dashboard prazo">
+  <div class="card-dashboard prazo" onclick="filtrarPorStatus('No prazo')">
     <div class="numero" id="contagem-prazo">0</div>
     <div class="rotulo">No prazo</div>
+  </div>
+  <div class="card-dashboard indefinido" onclick="filtrarPorStatus('Indefinido')">
+    <div class="numero" id="contagem-indefinido">0</div>
+    <div class="rotulo">Prazo indefinido</div>
   </div>
 </div>
 
@@ -175,6 +201,7 @@
     <option value="todos">Todos os status</option>
     <option value="Em atraso">Em atraso</option>
     <option value="No prazo">No prazo</option>
+    <option value="Indefinido">Prazo indefinido</option>
   </select>
 </div>
 
@@ -230,9 +257,16 @@
     const total = lista.length;
     const atraso = lista.filter(i => i.status === "Em atraso").length;
     const prazo = lista.filter(i => i.status === "No prazo").length;
+    const indefinido = lista.filter(i => i.status === "Indefinido").length;
     document.getElementById("contagem-total").textContent = total;
     document.getElementById("contagem-atraso").textContent = atraso;
     document.getElementById("contagem-prazo").textContent = prazo;
+    document.getElementById("contagem-indefinido").textContent = indefinido;
+  }
+
+  function filtrarPorStatus(status) {
+    document.getElementById("filtro-status").value = status;
+    aplicarFiltros();
   }
 
   function aplicarFiltros() {
@@ -267,7 +301,8 @@
 
       const badgeClasse =
         item.status === "Em atraso" ? "atraso" :
-        item.status === "No prazo" ? "prazo" : "sem-previsao";
+        item.status === "No prazo" ? "prazo" :
+        item.status === "Indefinido" ? "indefinido" : "sem-previsao";
 
       tr.innerHTML = `
         <td>${item.pedido}</td>
@@ -287,11 +322,18 @@
     document.querySelectorAll(".previsao-editavel").forEach(celula => {
       celula.addEventListener("click", function handler() {
         const nf = celula.dataset.nf;
-        const valorAtual = celula.dataset.previsao;
 
-        celula.innerHTML = `<input type="date" id="input-${nf}" />`;
+        celula.innerHTML = `
+          <input type="date" id="input-${nf}" />
+          <button type="button" class="btn-indefinido" id="btn-indef-${nf}">Indefinido</button>
+        `;
         const input = document.getElementById(`input-${nf}`);
+        const botaoIndefinido = document.getElementById(`btn-indef-${nf}`);
         input.focus();
+
+        // Evita que o clique no botão "Indefinido" dispare o blur do input antes da hora
+        botaoIndefinido.addEventListener("mousedown", (e) => e.preventDefault());
+        botaoIndefinido.addEventListener("click", () => salvarPrevisao(nf, "INDEFINIDO", celula));
 
         input.addEventListener("blur", () => salvarPrevisao(nf, input.value, celula));
         input.addEventListener("keydown", (e) => {
