@@ -45,6 +45,54 @@
   input[type="file"] { display: none; }
   #status-importacao { font-size: 13px; color: #555; }
 
+  .dashboard {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .card-dashboard {
+    background: #fff;
+    border-radius: 8px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    min-width: 140px;
+    text-align: center;
+  }
+  .card-dashboard .numero {
+    font-size: 28px;
+    font-weight: 700;
+  }
+  .card-dashboard .rotulo {
+    font-size: 13px;
+    color: #666;
+    margin-top: 4px;
+  }
+  .card-dashboard.total .numero { color: var(--azul); }
+  .card-dashboard.atraso .numero { color: var(--vermelho); }
+  .card-dashboard.prazo .numero { color: var(--verde); }
+
+  .filtros {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  #campo-busca {
+    padding: 8px 12px;
+    border: 1px solid var(--cinza-borda);
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 240px;
+  }
+  #filtro-status {
+    padding: 8px 12px;
+    border: 1px solid var(--cinza-borda);
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
   table {
     width: 100%;
     border-collapse: collapse;
@@ -99,11 +147,35 @@
 
 <h1>Todas NFs em aberto</h1>
 
+<div class="dashboard">
+  <div class="card-dashboard total">
+    <div class="numero" id="contagem-total">0</div>
+    <div class="rotulo">Total em aberto</div>
+  </div>
+  <div class="card-dashboard atraso">
+    <div class="numero" id="contagem-atraso">0</div>
+    <div class="rotulo">Em atraso</div>
+  </div>
+  <div class="card-dashboard prazo">
+    <div class="numero" id="contagem-prazo">0</div>
+    <div class="rotulo">No prazo</div>
+  </div>
+</div>
+
 <div class="barra-acoes">
   <button class="btn" onclick="document.getElementById('inputCsv').click()">Importar CSV</button>
   <input type="file" id="inputCsv" accept=".csv" onchange="importarArquivo(event)" />
   <button class="btn" onclick="carregarLista()">Atualizar lista</button>
   <span id="status-importacao"></span>
+</div>
+
+<div class="filtros">
+  <input type="text" id="campo-busca" placeholder="Buscar por Pedido ou NF..." oninput="aplicarFiltros()" />
+  <select id="filtro-status" onchange="aplicarFiltros()">
+    <option value="todos">Todos os status</option>
+    <option value="Em atraso">Em atraso</option>
+    <option value="No prazo">No prazo</option>
+  </select>
 </div>
 
 <table>
@@ -135,46 +207,80 @@
     return json.data;
   }
 
+  let listaCompleta = [];
+
   async function carregarLista() {
-    const corpo = document.getElementById("corpo-tabela");
     const carregando = document.getElementById("carregando");
     const vazio = document.getElementById("vazio");
-    corpo.innerHTML = "";
-    vazio.style.display = "none";
     carregando.style.display = "block";
+    vazio.style.display = "none";
 
     try {
-      const lista = await chamarApi({ action: "listar" });
+      listaCompleta = await chamarApi({ action: "listar" });
       carregando.style.display = "none";
-
-      if (!lista.length) {
-        vazio.style.display = "block";
-        return;
-      }
-
-      lista.forEach(item => {
-        const tr = document.createElement("tr");
-
-        const badgeClasse =
-          item.status === "Em atraso" ? "atraso" :
-          item.status === "No prazo" ? "prazo" : "sem-previsao";
-
-        tr.innerHTML = `
-          <td>${item.pedido}</td>
-          <td>${item.nf}</td>
-          <td class="previsao-editavel" data-nf="${item.nf}" data-previsao="${item.previsao}">
-            ${item.previsao || "-"}
-          </td>
-          <td><span class="badge ${badgeClasse}">${item.status}</span></td>
-        `;
-        corpo.appendChild(tr);
-      });
-
-      ativarEdicaoPrevisao();
+      atualizarDashboard(listaCompleta);
+      aplicarFiltros();
     } catch (err) {
       carregando.style.display = "none";
       alert("Erro ao carregar lista: " + err.message);
     }
+  }
+
+  function atualizarDashboard(lista) {
+    const total = lista.length;
+    const atraso = lista.filter(i => i.status === "Em atraso").length;
+    const prazo = lista.filter(i => i.status === "No prazo").length;
+    document.getElementById("contagem-total").textContent = total;
+    document.getElementById("contagem-atraso").textContent = atraso;
+    document.getElementById("contagem-prazo").textContent = prazo;
+  }
+
+  function aplicarFiltros() {
+    const busca = document.getElementById("campo-busca").value.trim().toLowerCase();
+    const statusFiltro = document.getElementById("filtro-status").value;
+
+    const filtrada = listaCompleta.filter(item => {
+      const bateBusca =
+        !busca ||
+        String(item.pedido).toLowerCase().includes(busca) ||
+        String(item.nf).toLowerCase().includes(busca);
+      const bateStatus = statusFiltro === "todos" || item.status === statusFiltro;
+      return bateBusca && bateStatus;
+    });
+
+    renderizarTabela(filtrada);
+  }
+
+  function renderizarTabela(lista) {
+    const corpo = document.getElementById("corpo-tabela");
+    const vazio = document.getElementById("vazio");
+    corpo.innerHTML = "";
+
+    if (!lista.length) {
+      vazio.style.display = "block";
+      return;
+    }
+    vazio.style.display = "none";
+
+    lista.forEach(item => {
+      const tr = document.createElement("tr");
+
+      const badgeClasse =
+        item.status === "Em atraso" ? "atraso" :
+        item.status === "No prazo" ? "prazo" : "sem-previsao";
+
+      tr.innerHTML = `
+        <td>${item.pedido}</td>
+        <td>${item.nf}</td>
+        <td class="previsao-editavel" data-nf="${item.nf}" data-previsao="${item.previsao}">
+          ${item.previsao || "-"}
+        </td>
+        <td><span class="badge ${badgeClasse}">${item.status}</span></td>
+      `;
+      corpo.appendChild(tr);
+    });
+
+    ativarEdicaoPrevisao();
   }
 
   function ativarEdicaoPrevisao() {
