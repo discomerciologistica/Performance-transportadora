@@ -75,6 +75,11 @@
   .card-dashboard.total .numero { color: var(--azul); }
   .card-dashboard.atraso .numero { color: var(--vermelho); }
   .card-dashboard.prazo .numero { color: var(--verde); }
+  .card-dashboard.performance { cursor: default; }
+  .card-dashboard.performance:hover { transform: none; }
+  .card-dashboard.performance.boa .numero { color: var(--verde); }
+  .card-dashboard.performance.media .numero { color: #e67e22; }
+  .card-dashboard.performance.ruim .numero { color: var(--vermelho); }
 
   .filtros {
     display: flex;
@@ -115,7 +120,11 @@
     background: var(--azul);
     color: #fff;
     font-weight: 600;
+    cursor: pointer;
+    user-select: none;
   }
+  th:hover { background: #21618c; }
+  .seta { font-size: 11px; }
   tr:hover { background: #f9f9f9; }
 
   .badge {
@@ -186,12 +195,17 @@
     <div class="numero" id="contagem-indefinido">0</div>
     <div class="rotulo">Prazo indefinido</div>
   </div>
+  <div class="card-dashboard performance" id="card-performance">
+    <div class="numero" id="contagem-performance">0%</div>
+    <div class="rotulo">Performance da transportadora</div>
+  </div>
 </div>
 
 <div class="barra-acoes">
   <button class="btn" onclick="document.getElementById('inputCsv').click()">Importar CSV</button>
   <input type="file" id="inputCsv" accept=".csv" onchange="importarArquivo(event)" />
   <button class="btn" onclick="carregarLista()">Atualizar lista</button>
+  <button class="btn" onclick="exportarExcel()">Exportar Excel</button>
   <span id="status-importacao"></span>
 </div>
 
@@ -208,10 +222,10 @@
 <table>
   <thead>
     <tr>
-      <th>Pedido</th>
-      <th>NF</th>
-      <th>Previsão de Entrega</th>
-      <th>Status</th>
+      <th onclick="ordenarPor('pedido')">Pedido <span class="seta" id="seta-pedido"></span></th>
+      <th onclick="ordenarPor('nf')">NF <span class="seta" id="seta-nf"></span></th>
+      <th onclick="ordenarPor('previsao')">Previsão de Entrega <span class="seta" id="seta-previsao"></span></th>
+      <th onclick="ordenarPor('status')">Status <span class="seta" id="seta-status"></span></th>
     </tr>
   </thead>
   <tbody id="corpo-tabela"></tbody>
@@ -220,9 +234,10 @@
 <div id="vazio" style="display:none;">Nenhuma NF em aberto no momento.</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
   // ⚠️ Troque pela URL do seu Web App publicado no Apps Script
-  const API_URL = "https://script.google.com/macros/s/AKfycbw3CRmNOXEjtVADO_uGFMcnG13LET84WtXd7G1NsNfjpvUXFmGsP412pE19u71YDxly/exec";
+  const API_URL = "https://script.google.com/macros/s/AKfycbw3CRmNOXEjtVADO_uGFMcnG13LET84WtXd7G1NsNfjpvUXFmGsP412pE19u71YDxly/exe";
 
   async function chamarApi(payload) {
     const resp = await fetch(API_URL, {
@@ -235,6 +250,8 @@
   }
 
   let listaCompleta = [];
+  let listaExibida = [];
+  let ordenacao = { campo: null, direcao: 1 }; // direcao: 1 = crescente, -1 = decrescente
 
   async function carregarLista() {
     const carregando = document.getElementById("carregando");
@@ -262,6 +279,12 @@
     document.getElementById("contagem-atraso").textContent = atraso;
     document.getElementById("contagem-prazo").textContent = prazo;
     document.getElementById("contagem-indefinido").textContent = indefinido;
+
+    const performance = total > 0 ? Math.round(((total - atraso) / total) * 100) : 100;
+    document.getElementById("contagem-performance").textContent = performance + "%";
+    const cardPerformance = document.getElementById("card-performance");
+    cardPerformance.classList.remove("boa", "media", "ruim");
+    cardPerformance.classList.add(performance >= 90 ? "boa" : performance >= 70 ? "media" : "ruim");
   }
 
   function filtrarPorStatus(status) {
@@ -273,7 +296,7 @@
     const busca = document.getElementById("campo-busca").value.trim().toLowerCase();
     const statusFiltro = document.getElementById("filtro-status").value;
 
-    const filtrada = listaCompleta.filter(item => {
+    let filtrada = listaCompleta.filter(item => {
       const bateBusca =
         !busca ||
         String(item.pedido).toLowerCase().includes(busca) ||
@@ -282,7 +305,71 @@
       return bateBusca && bateStatus;
     });
 
+    filtrada = ordenarLista(filtrada);
+    listaExibida = filtrada;
     renderizarTabela(filtrada);
+  }
+
+  function valorOrdenavelPrevisao(item) {
+    if (!item.previsao || item.previsao === "Indefinido") return Infinity;
+    const [dia, mes, ano] = item.previsao.split("/");
+    return new Date(`${ano}-${mes}-${dia}`).getTime();
+  }
+
+  function ordenarLista(lista) {
+    if (!ordenacao.campo) return lista;
+    const campo = ordenacao.campo;
+
+    return [...lista].sort((a, b) => {
+      let valA, valB;
+      if (campo === "previsao") {
+        valA = valorOrdenavelPrevisao(a);
+        valB = valorOrdenavelPrevisao(b);
+      } else {
+        valA = String(a[campo] || "").toLowerCase();
+        valB = String(b[campo] || "").toLowerCase();
+      }
+      if (valA < valB) return -1 * ordenacao.direcao;
+      if (valA > valB) return 1 * ordenacao.direcao;
+      return 0;
+    });
+  }
+
+  function ordenarPor(campo) {
+    if (ordenacao.campo === campo) {
+      ordenacao.direcao *= -1;
+    } else {
+      ordenacao.campo = campo;
+      ordenacao.direcao = 1;
+    }
+    atualizarIndicadoresOrdenacao();
+    aplicarFiltros();
+  }
+
+  function atualizarIndicadoresOrdenacao() {
+    ["pedido", "nf", "previsao", "status"].forEach(campo => {
+      const seta = document.getElementById("seta-" + campo);
+      if (!seta) return;
+      seta.textContent = ordenacao.campo === campo ? (ordenacao.direcao === 1 ? "▲" : "▼") : "";
+    });
+  }
+
+  function exportarExcel() {
+    if (!listaExibida.length) {
+      alert("Não há dados para exportar.");
+      return;
+    }
+    const dados = listaExibida.map(item => ({
+      Pedido: item.pedido,
+      NF: item.nf,
+      "Previsão de Entrega": item.previsao || "-",
+      Status: item.status
+    }));
+    const planilha = XLSX.utils.json_to_sheet(dados);
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, planilha, "NFs Em Aberto");
+    const dataHoje = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(livro, `nfs-em-aberto-${dataHoje}.xlsx`);
   }
 
   function renderizarTabela(lista) {
